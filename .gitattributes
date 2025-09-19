@@ -1,0 +1,15 @@
+# normalize line endings
+* text=auto
+
+# force specific text files to LF in repo
+*.ts text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+
+# binaries
+*.png binary
+*.jpg binary
+*.gif binary
