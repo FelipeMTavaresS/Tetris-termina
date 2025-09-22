@@ -85,6 +85,7 @@ export class Game extends Scene {
     // score/info são exibidos pelo overlay HTML do HUD
     gameOver = false;
     gameOverText?: Phaser.GameObjects.Text | null = null;
+    clearingLines: boolean = false;
     holdText!: Phaser.GameObjects.Text;
     controlsText!: Phaser.GameObjects.Text;
     holdEmptyText!: Phaser.GameObjects.Text;
@@ -98,6 +99,14 @@ export class Game extends Scene {
     constructor () {
         super('Game');
         this.grid = Array.from({ length: GRID_H }, () => Array.from({ length: GRID_W }, () => null));
+    }
+
+    init(data: any) {
+        // Recebe configurações vindas da cena de start (ex: startLevel)
+        if (data && typeof data.startLevel === 'number') {
+            this.level = Math.max(1, Math.floor(data.startLevel));
+            this.dropInterval = Math.max(100, 500 - (this.level - 1) * 40);
+        }
     }
 
     create () {
@@ -125,7 +134,12 @@ export class Game extends Scene {
             this.input.keyboard.on('keydown-UP', () => { this.rotatePiece(); });
             this.input.keyboard.on('keydown-SPACE', () => { this.hardDrop(); });
             this.input.keyboard.on('keydown-C', () => { this.holdPiece(); });
-            this.input.keyboard.on('keydown-R', () => { this.restart(); });
+            this.input.keyboard.on('keydown-ESC', () => {
+                if (this.gameOver) return;
+                // pause this scene and launch the PauseScene overlay
+                this.scene.pause();
+                this.scene.launch('PauseScene');
+            });
         }
 
     // Botão Restart no HUD (o handler de clique já existe) - garantir que seja exibido quando necessário
@@ -275,26 +289,86 @@ export class Game extends Scene {
             this.endGame();
             return;
         }
-        this.spawnPiece();
+        // if clearLines started an animation, spawnPiece will be called after animation completes
+        if (!this.clearingLines) {
+            this.spawnPiece();
+        }
     }
 
     clearLines() {
-        let cleared = 0;
-        for (let y = GRID_H - 1; y >= 0; y--) {
-            if (this.grid[y].every(c => c !== null)) {
-                // remover linha
-                this.grid.splice(y, 1);
-                this.grid.unshift(Array.from({ length: GRID_W }, () => null));
-                cleared++;
-                y++; // recheck same index
+        const fullLines: number[] = [];
+        for (let y = 0; y < GRID_H; y++) {
+            if (this.grid[y].every(c => c !== null)) fullLines.push(y);
+        }
+        if (fullLines.length === 0) return;
+
+        // mark that we're animating line clears
+        this.clearingLines = true;
+
+        // compute pixel offset for cells
+        const gx = Math.floor((this.scale.width - GRID_W * CELL_SIZE) / 2);
+        const gy = Math.floor((this.scale.height - GRID_H * CELL_SIZE) / 2);
+        const size = CELL_SIZE - 2;
+
+        const rects: Phaser.GameObjects.Rectangle[] = [];
+
+        // create rectangles for each cell in full lines
+        for (let li = 0; li < fullLines.length; li++) {
+            const y = fullLines[li];
+            for (let x = 0; x < GRID_W; x++) {
+                const color = this.grid[y][x] as number;
+                const px = gx + x * CELL_SIZE + 1;
+                const py = gy + y * CELL_SIZE + 1;
+                const rect = this.add.rectangle(px, py, size, size, color).setOrigin(0).setDepth(1000);
+                rects.push(rect);
             }
         }
-        if (cleared > 0) {
+
+        // animate rectangles: pop + fade with slight stagger per column
+        const centerX = (GRID_W - 1) / 2;
+        let maxDelay = 0;
+        rects.forEach((rect) => {
+            // compute column from rect.x
+            const col = Math.round((rect.x - (gx + 1)) / CELL_SIZE);
+            const delay = Math.abs(col - centerX) * 30;
+            maxDelay = Math.max(maxDelay, delay);
+            this.tweens.add({
+                targets: rect,
+                scaleX: 0,
+                scaleY: 0,
+                alpha: 0,
+                y: rect.y + size / 2,
+                ease: 'Back.easeIn',
+                duration: 260,
+                delay,
+                onComplete: () => {
+                    rect.destroy();
+                }
+            });
+        });
+
+        // after animations finish (maxDelay + duration), perform the actual grid removal and scoring
+        const totalWait = maxDelay + 300;
+        this.time.delayedCall(totalWait, () => {
+            // remove lines from grid (from bottom to top to keep indices stable)
+            const sorted = fullLines.slice().sort((a, b) => b - a);
+            for (const y of sorted) {
+                this.grid.splice(y, 1);
+                this.grid.unshift(Array.from({ length: GRID_W }, () => null));
+            }
+
+            // update stats
+            const cleared = fullLines.length;
             this.lines += cleared;
             this.score += cleared * 100;
             this.level = Math.floor(this.lines / 10) + 1;
             this.dropInterval = Math.max(100, 500 - (this.level - 1) * 40);
-        }
+
+            this.clearingLines = false;
+
+            // after clearing, spawn next piece
+            this.spawnPiece();
+        });
     }
 
     endGame() {

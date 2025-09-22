@@ -1,4 +1,6 @@
 import { Game as MainGame } from './scenes/Game';
+import { StartScene } from './scenes/StartScene';
+import { PauseScene } from './scenes/PauseScene';
 import { AUTO, Game, Scale,Types } from 'phaser';
 
 // Para mais informações sobre GameConfig veja:
@@ -21,7 +23,9 @@ const config: Types.Core.GameConfig = {
         autoCenter: Scale.CENTER_BOTH
     },
     scene: [
-        MainGame
+        StartScene,
+        MainGame,
+        PauseScene
     ]
 };
 
