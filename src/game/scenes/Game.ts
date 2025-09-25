@@ -5,6 +5,8 @@ type Cell = number | null;
 const GRID_W = 10;
 const GRID_H = 20;
 const CELL_SIZE = 32;
+// Configuração: se quisermos animação de flash; desativado enquanto corrigimos bug de múltiplas linhas
+const ENABLE_LINE_FLASH_ANIMATION = false;
 
 // Cores base por forma (paleta neon/terminal)
 const SHAPE_COLORS = [
@@ -85,7 +87,10 @@ export class Game extends Scene {
     // score/info são exibidos pelo overlay HTML do HUD
     gameOver = false;
     gameOverText?: Phaser.GameObjects.Text | null = null;
-    clearingLines: boolean = false;
+    clearingLines: boolean = false; // mantido para compatibilidade (quando animação for reativada)
+    clearingLinesRows: number[] = [];
+    clearingLinesStart: number = 0;
+    clearingLinesFlashDuration: number = 320; // usado só se animação ativada
     holdText!: Phaser.GameObjects.Text;
     controlsText!: Phaser.GameObjects.Text;
     holdEmptyText!: Phaser.GameObjects.Text;
@@ -180,6 +185,12 @@ export class Game extends Scene {
 
     update(time: number) {
     if (this.gameOver) return;
+    // se animação estiver ativa e em progresso, atualizar e renderizar
+    if (ENABLE_LINE_FLASH_ANIMATION && this.clearingLines) {
+        this.updateLineClearAnimation(time);
+        this.render();
+        return;
+    }
 
     // controlar movimento lateral (resposta imediata simples)
         if (Phaser.Input.Keyboard.JustDown(this.cursors.left)) {
@@ -207,16 +218,21 @@ export class Game extends Scene {
     spawnPiece() {
         // permitir segurar novamente para a nova peça gerada
         this.holdUsed = false;
-        const shape = randInt(SHAPES.length);
+
+        // se já temos uma peça 'next' prevista, use-a como a próxima peça
+        const shape = (this.nextShape !== null && this.nextShape !== undefined) ? this.nextShape : randInt(SHAPES.length);
         const rotations = SHAPES[shape];
         const rot = 0;
         const cells = rotations[rot];
         const x = Math.floor(GRID_W / 2);
-    const y = -2; // iniciar acima da grade
-    // atribuir cor para a forma
-    const color = SHAPE_COLORS[shape % SHAPE_COLORS.length];
+        const y = -2; // iniciar acima da grade
+        // atribuir cor para a forma
+        const color = SHAPE_COLORS[shape % SHAPE_COLORS.length];
 
         this.current = { shape, rot, x, y, cells, color };
+
+        // preparar a próxima peça (para preview) imediatamente
+        this.nextShape = randInt(SHAPES.length);
 
         if (this.collides(this.current, 0, 0)) {
             this.endGame();
@@ -283,6 +299,9 @@ export class Game extends Scene {
                 this.grid[cy][cx] = this.current.color;
             }
         }
+        // remove referência à peça atual: ela agora faz parte do grid e não deve
+        // ser desenhada enquanto as linhas são animadas/remoções acontecem
+        this.current = null;
         this.clearLines();
         if (aboveTop) {
             // lock completado mas parte da peça fica acima da tela: terminar o jogo
@@ -296,79 +315,72 @@ export class Game extends Scene {
     }
 
     clearLines() {
+        // coleta de linhas cheias
         const fullLines: number[] = [];
         for (let y = 0; y < GRID_H; y++) {
-            if (this.grid[y].every(c => c !== null)) fullLines.push(y);
+            let filledCount = 0;
+            for (let x = 0; x < GRID_W; x++) if (this.grid[y][x] !== null) filledCount++;
+            if (filledCount === GRID_W) fullLines.push(y);
         }
         if (fullLines.length === 0) return;
-
-        // mark that we're animating line clears
-        this.clearingLines = true;
-
-        // compute pixel offset for cells
-        const gx = Math.floor((this.scale.width - GRID_W * CELL_SIZE) / 2);
-        const gy = Math.floor((this.scale.height - GRID_H * CELL_SIZE) / 2);
-        const size = CELL_SIZE - 2;
-
-        const rects: Phaser.GameObjects.Rectangle[] = [];
-
-        // create rectangles for each cell in full lines
-        for (let li = 0; li < fullLines.length; li++) {
-            const y = fullLines[li];
-            for (let x = 0; x < GRID_W; x++) {
-                const color = this.grid[y][x] as number;
-                const px = gx + x * CELL_SIZE + 1;
-                const py = gy + y * CELL_SIZE + 1;
-                const rect = this.add.rectangle(px, py, size, size, color).setOrigin(0).setDepth(1000);
-                rects.push(rect);
-            }
+        fullLines.sort((a,b)=>b-a); // ordem descendente para splice seguro
+        if ((window as any).DEBUG_TETRIS) {
+            // eslint-disable-next-line no-console
+            console.log('[TETRIS] Lines full (detected):', fullLines.slice().reverse().join(','));
         }
-
-        // animate rectangles: pop + fade with slight stagger per column
-        const centerX = (GRID_W - 1) / 2;
-        let maxDelay = 0;
-        rects.forEach((rect) => {
-            // compute column from rect.x
-            const col = Math.round((rect.x - (gx + 1)) / CELL_SIZE);
-            const delay = Math.abs(col - centerX) * 30;
-            maxDelay = Math.max(maxDelay, delay);
-            this.tweens.add({
-                targets: rect,
-                scaleX: 0,
-                scaleY: 0,
-                alpha: 0,
-                y: rect.y + size / 2,
-                ease: 'Back.easeIn',
-                duration: 260,
-                delay,
-                onComplete: () => {
-                    rect.destroy();
-                }
-            });
-        });
-
-        // after animations finish (maxDelay + duration), perform the actual grid removal and scoring
-        const totalWait = maxDelay + 300;
-        this.time.delayedCall(totalWait, () => {
-            // remove lines from grid (from bottom to top to keep indices stable)
-            const sorted = fullLines.slice().sort((a, b) => b - a);
-            for (const y of sorted) {
-                this.grid.splice(y, 1);
+        if (!ENABLE_LINE_FLASH_ANIMATION) {
+            // remoção síncrona imediata confiável (sem animação)
+            // IMPORTANTE: não fazer unshift dentro do loop de remoção para não deslocar índices restantes.
+            const toAdd = fullLines.length;
+            for (const y of fullLines) {
+                this.grid.splice(y, 1); // remover linha cheia (ordem desc garante segurança)
+            }
+            for (let i = 0; i < toAdd; i++) {
                 this.grid.unshift(Array.from({ length: GRID_W }, () => null));
             }
-
-            // update stats
             const cleared = fullLines.length;
             this.lines += cleared;
-            this.score += cleared * 100;
+            const scoreTable = [0,100,300,500,800];
+            this.score += scoreTable[cleared] ?? cleared * 100;
             this.level = Math.floor(this.lines / 10) + 1;
             this.dropInterval = Math.max(100, 500 - (this.level - 1) * 40);
-
-            this.clearingLines = false;
-
-            // after clearing, spawn next piece
+            if ((window as any).DEBUG_TETRIS) {
+                // eslint-disable-next-line no-console
+                console.log('[TETRIS] Cleared (sync)', cleared, 'Total lines:', this.lines, 'Score:', this.score);
+            }
+            // como não há animação, simplesmente gerar próxima peça aqui
             this.spawnPiece();
-        });
+            return;
+        }
+        // caminho de animação (se reativado)
+        this.clearingLines = true;
+        this.clearingLinesRows = fullLines.slice().reverse(); // manter ascendente para visual
+        this.clearingLinesStart = this.time.now;
+    }
+
+    private updateLineClearAnimation(_time: number) {
+        if (!ENABLE_LINE_FLASH_ANIMATION) return; // animação desativada
+        if (!this.clearingLines) return;
+        const elapsed = this.time.now - this.clearingLinesStart;
+        if (elapsed >= this.clearingLinesFlashDuration) {
+            const sorted = this.clearingLinesRows.slice().sort((a, b) => b - a);
+            const toAdd = sorted.length;
+            for (const y of sorted) {
+                this.grid.splice(y, 1); // remover primeiro
+            }
+            for (let i = 0; i < toAdd; i++) {
+                this.grid.unshift(Array.from({ length: GRID_W }, () => null));
+            }
+            const cleared = this.clearingLinesRows.length;
+            this.lines += cleared;
+            const scoreTable = [0,100,300,500,800];
+            this.score += scoreTable[cleared] ?? cleared * 100;
+            this.level = Math.floor(this.lines / 10) + 1;
+            this.dropInterval = Math.max(100, 500 - (this.level - 1) * 40);
+            this.clearingLines = false;
+            this.clearingLinesRows = [];
+            this.spawnPiece();
+        }
     }
 
     endGame() {
@@ -430,13 +442,22 @@ export class Game extends Scene {
             this.graphics.strokePath();
         }
 
-    // desenhar blocos fixos
+        // desenhar blocos fixos
         for (let y = 0; y < GRID_H; y++) {
             for (let x = 0; x < GRID_W; x++) {
                 const color = this.grid[y][x];
-                if (color) {
-                    this.drawCell(gx, gy, x, y, color);
-                }
+                if (color) this.drawCell(gx, gy, x, y, color);
+            }
+        }
+
+        // se animação estiver ativa, desenhar overlay de flash
+        if (ENABLE_LINE_FLASH_ANIMATION && this.clearingLines && this.clearingLinesRows.length) {
+            const phase = ((this.time.now - this.clearingLinesStart) / 80) % 1;
+            const alpha = phase < 0.5 ? 0.85 : 0.35;
+            this.graphics.fillStyle(0xFFFFFF, alpha);
+            for (const row of this.clearingLinesRows) {
+                const ry = gy + row * CELL_SIZE + 1;
+                this.graphics.fillRect(gx + 1, ry, GRID_W * CELL_SIZE - 2, CELL_SIZE - 2);
             }
         }
 
@@ -521,7 +542,7 @@ export class Game extends Scene {
         const nextPreview = document.getElementById('hud-next-preview');
         if (nextPreview) {
             nextPreview.innerHTML = '';
-            const nextS = this.nextShape ?? (this.current ? ((this.current.shape + 1) % SHAPES.length) : 0);
+            const nextS = (this.nextShape !== null && this.nextShape !== undefined) ? this.nextShape : (this.current ? ((this.current.shape + 1) % SHAPES.length) : 0);
             const nextColor = SHAPE_COLORS[nextS % SHAPE_COLORS.length];
             this.renderPreviewDom(nextPreview, nextS, nextColor);
         }
