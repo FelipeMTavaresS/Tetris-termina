@@ -5,8 +5,14 @@ type Cell = number | null;
 const GRID_W = 10;
 const GRID_H = 20;
 const CELL_SIZE = 32;
-// Configuração: se quisermos animação de flash; desativado enquanto corrigimos bug de múltiplas linhas
-const ENABLE_LINE_FLASH_ANIMATION = false;
+// Configuração: animação de limpeza estilo terminal (dissolve por célula)
+const ENABLE_LINE_FLASH_ANIMATION = true; // desligue para limpeza instantânea
+// Intensificado: mais rápido e mais vivo
+const LINE_ANIM_CELL_DURATION = 110; // ms para cada célula dissolver
+const LINE_ANIM_CELL_DELAY_MAX = 60;  // atraso randômico máximo adicional
+const LINE_ANIM_TOTAL_EXTRA_WAIT = 40; // buffer após concluir todas as células
+const LINE_ANIM_GLYPHS = ['#','@','%','*','+','=',';','·'];
+const TERMINAL_GREEN = 0x00ff55;
 
 // Cores base por forma (paleta neon/terminal)
 const SHAPE_COLORS = [
@@ -91,6 +97,8 @@ export class Game extends Scene {
     clearingLinesRows: number[] = [];
     clearingLinesStart: number = 0;
     clearingLinesFlashDuration: number = 320; // usado só se animação ativada
+    // estado granular da animação terminal: atraso por célula em cada linha
+    clearingLineCellDelays: Array<{ row:number; delays:number[]; }> = [];
     holdText!: Phaser.GameObjects.Text;
     controlsText!: Phaser.GameObjects.Text;
     holdEmptyText!: Phaser.GameObjects.Text;
@@ -100,6 +108,10 @@ export class Game extends Scene {
     hudX = 0;
     hudW = 220;
     nextShape: number | null = null;
+    // estado de efeito especial para Tetris (clear de 4 linhas)
+    tetrisEffectActive: boolean = false;
+    tetrisEffectEnd: number = 0;
+    tetrisFlashStart: number = 0;
 
     constructor () {
         super('Game');
@@ -352,26 +364,38 @@ export class Game extends Scene {
             this.spawnPiece();
             return;
         }
-        // caminho de animação (se reativado)
+    const isTetris = fullLines.length === 4;
+    // caminho de animação terminal
         this.clearingLines = true;
-        this.clearingLinesRows = fullLines.slice().reverse(); // manter ascendente para visual
+        // usar ordem ascendente para render acima -> baixo
+        this.clearingLinesRows = fullLines.slice().reverse();
         this.clearingLinesStart = this.time.now;
+        this.clearingLineCellDelays = this.clearingLinesRows.map(r => ({
+            row: r,
+            delays: Array.from({length: GRID_W}, () => Phaser.Math.Between(0, LINE_ANIM_CELL_DELAY_MAX))
+        }));
+        if (isTetris) this.triggerTetrisEffect();
     }
 
     private updateLineClearAnimation(_time: number) {
-        if (!ENABLE_LINE_FLASH_ANIMATION) return; // animação desativada
-        if (!this.clearingLines) return;
-        const elapsed = this.time.now - this.clearingLinesStart;
-        if (elapsed >= this.clearingLinesFlashDuration) {
-            const sorted = this.clearingLinesRows.slice().sort((a, b) => b - a);
+        if (!ENABLE_LINE_FLASH_ANIMATION || !this.clearingLines) return;
+        const now = this.time.now;
+        let allDone = true;
+        let lastFinish = 0;
+        for (const line of this.clearingLineCellDelays) {
+            for (let x = 0; x < GRID_W; x++) {
+                const start = this.clearingLinesStart + line.delays[x];
+                const finish = start + LINE_ANIM_CELL_DURATION;
+                if (finish > lastFinish) lastFinish = finish;
+                if (now < finish) allDone = false;
+            }
+        }
+        if (allDone && now >= lastFinish + LINE_ANIM_TOTAL_EXTRA_WAIT) {
+            const sorted = this.clearingLinesRows.slice().sort((a,b)=>b-a);
             const toAdd = sorted.length;
-            for (const y of sorted) {
-                this.grid.splice(y, 1); // remover primeiro
-            }
-            for (let i = 0; i < toAdd; i++) {
-                this.grid.unshift(Array.from({ length: GRID_W }, () => null));
-            }
-            const cleared = this.clearingLinesRows.length;
+            for (const y of sorted) this.grid.splice(y,1);
+            for (let i=0;i<toAdd;i++) this.grid.unshift(Array.from({ length: GRID_W }, () => null));
+            const cleared = toAdd;
             this.lines += cleared;
             const scoreTable = [0,100,300,500,800];
             this.score += scoreTable[cleared] ?? cleared * 100;
@@ -379,8 +403,17 @@ export class Game extends Scene {
             this.dropInterval = Math.max(100, 500 - (this.level - 1) * 40);
             this.clearingLines = false;
             this.clearingLinesRows = [];
+            this.clearingLineCellDelays = [];
             this.spawnPiece();
         }
+    }
+
+    private triggerTetrisEffect() {
+        const now = this.time.now;
+        this.tetrisEffectActive = true;
+        this.tetrisEffectEnd = now + 600; // duração total do efeito
+        this.tetrisFlashStart = now;
+        if (this.cameras?.main) this.cameras.main.shake(180, 0.004);
     }
 
     endGame() {
@@ -443,21 +476,58 @@ export class Game extends Scene {
         }
 
         // desenhar blocos fixos
+        // Se for Tetris (4 linhas), tudo fica verde; caso contrário, só as linhas em limpeza.
+        const isTetrisClear = ENABLE_LINE_FLASH_ANIMATION && this.clearingLines && this.clearingLinesRows.length === 4;
+        const clearingSet = (!isTetrisClear && ENABLE_LINE_FLASH_ANIMATION && this.clearingLines) ? new Set(this.clearingLinesRows) : null;
         for (let y = 0; y < GRID_H; y++) {
+            const isClearingRow = isTetrisClear ? true : (clearingSet ? clearingSet.has(y) : false);
             for (let x = 0; x < GRID_W; x++) {
                 const color = this.grid[y][x];
-                if (color) this.drawCell(gx, gy, x, y, color);
+                if (color) this.drawCell(gx, gy, x, y, isClearingRow ? TERMINAL_GREEN : color);
             }
         }
 
-        // se animação estiver ativa, desenhar overlay de flash
-        if (ENABLE_LINE_FLASH_ANIMATION && this.clearingLines && this.clearingLinesRows.length) {
-            const phase = ((this.time.now - this.clearingLinesStart) / 80) % 1;
-            const alpha = phase < 0.5 ? 0.85 : 0.35;
-            this.graphics.fillStyle(0xFFFFFF, alpha);
-            for (const row of this.clearingLinesRows) {
-                const ry = gy + row * CELL_SIZE + 1;
-                this.graphics.fillRect(gx + 1, ry, GRID_W * CELL_SIZE - 2, CELL_SIZE - 2);
+        // overlay de dissolução terminal por célula
+        if (ENABLE_LINE_FLASH_ANIMATION && this.clearingLines && this.clearingLineCellDelays.length) {
+            const now = this.time.now;
+            for (const line of this.clearingLineCellDelays) {
+                const row = line.row;
+                const baseY = gy + row * CELL_SIZE + 1;
+                for (let x = 0; x < GRID_W; x++) {
+                    const start = this.clearingLinesStart + line.delays[x];
+                    const local = now - start;
+                    if (local < 0) continue; // ainda não iniciou animação dessa célula
+                    const p = Math.min(1, local / LINE_ANIM_CELL_DURATION);
+                    const px = gx + x * CELL_SIZE + 1;
+                    const py = baseY;
+                    const size = CELL_SIZE - 2;
+                    // fundo escurecendo em tom verde terminal
+                    const baseAlpha = 0.85 * (1 - p) + 0.15;
+                    this.graphics.fillStyle(0x002200, baseAlpha);
+                    this.graphics.fillRect(px, py, size, size);
+                    // partículas / fragmentos retangulares que diminuem
+                    const fragments = Math.max(1, 6 - Math.floor(p * 6));
+                    for (let i = 0; i < fragments; i++) {
+                        const fw = Phaser.Math.Between(3, 6);
+                        const fh = Phaser.Math.Between(2, 5);
+                        const fx = px + Phaser.Math.Between(3, size - fw - 3);
+                        const fy = py + Phaser.Math.Between(3, size - fh - 3);
+                        const falpha = (1 - p) * Phaser.Math.FloatBetween(0.55, 1.0);
+                        this.graphics.fillStyle(TERMINAL_GREEN, falpha);
+                        this.graphics.fillRect(fx, fy, fw, fh);
+                    }
+                    // glyph vertical estilizado (simples) enquanto não terminou
+                    if (p < 1) {
+                        const glyphIndex = (x + row + Math.floor(now / 80)) % LINE_ANIM_GLYPHS.length;
+                        const bars = 1 + (glyphIndex % 3); // 1..3 barras
+                        const gAlpha = (1 - p) * 0.6 + 0.2;
+                        this.graphics.fillStyle(TERMINAL_GREEN, gAlpha);
+                        for (let b = 0; b < bars; b++) {
+                            const bx = px + 3 + b * 4;
+                            this.graphics.fillRect(bx, py + 3, 2, size - 6);
+                        }
+                    }
+                }
             }
         }
 
@@ -466,7 +536,36 @@ export class Game extends Scene {
             for (const cell of this.current.cells) {
                 const cx = this.current.x + cell[0];
                 const cy = this.current.y + cell[1];
-                if (cy >= 0) this.drawCell(gx, gy, cx, cy, this.current.color);
+                if (cy >= 0) {
+                    const isClearingRow = isTetrisClear ? true : (clearingSet ? clearingSet.has(cy) : false);
+                    this.drawCell(gx, gy, cx, cy, isClearingRow ? TERMINAL_GREEN : this.current.color);
+                }
+            }
+        }
+
+        // Overlay especial de Tetris (flash + scanlines + borda pulsante)
+        if (this.tetrisEffectActive) {
+            const now = this.time.now;
+            if (now > this.tetrisEffectEnd) {
+                this.tetrisEffectActive = false;
+            } else {
+                const prog = (now - this.tetrisFlashStart) / (this.tetrisEffectEnd - this.tetrisFlashStart);
+                const flashAlpha = Math.max(0, 0.75 - prog * 0.85);
+                if (flashAlpha > 0.04) {
+                    this.graphics.fillStyle(TERMINAL_GREEN, flashAlpha * 0.35);
+                    this.graphics.fillRect(gx - 6, gy - 6, GRID_W * CELL_SIZE + 12, GRID_H * CELL_SIZE + 12);
+                }
+                // scanlines
+                const lineAlpha = 0.10 + 0.15 * Math.sin(now / 50);
+                this.graphics.fillStyle(0x003300, lineAlpha);
+                for (let sy = 0; sy < GRID_H; sy += 2) {
+                    const yy = gy + sy * CELL_SIZE;
+                    this.graphics.fillRect(gx, yy, GRID_W * CELL_SIZE, 2);
+                }
+                // borda pulsante
+                const borderPulse = 0.4 + 0.4 * Math.sin(now / 70);
+                this.graphics.lineStyle(3, TERMINAL_GREEN, borderPulse);
+                this.graphics.strokeRect(gx - 4, gy - 4, GRID_W * CELL_SIZE + 8, GRID_H * CELL_SIZE + 8);
             }
         }
 
