@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Terminal Tetris - Clone de Tetris em Phaser 3 + TypeScript com estilo terminal verde." />
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Font for terminal look -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <title>Terminal Tetris</title>
+  <script type="module" crossorigin src="./assets/index-CcK80CJl.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/phaser-CLYd3JIB.js">
+</head>
+
+<body>
+    <div id="app">
+        <div class="game-wrap">
+            <!-- Link de retorno opcional para o portfólio (remova ou ajuste o href) -->
+            <!-- <a href="../" style="position:absolute;top:6px;left:6px;font:12px 'Share Tech Mono',monospace;color:#00ff66;text-decoration:none;opacity:.75">&larr; BACK</a> -->
+            <div id="game-container"></div>
+            <!-- HUD overlay (HTML/CSS) -->
+            <div id="hud" aria-hidden="false">
+            <div class="hud-section">
+                <div class="hud-title">SCORE</div>
+                <div id="hud-score" class="hud-value">0</div>
+            </div>
+            <div class="hud-section">
+                <div class="hud-title">INFO</div>
+                <div id="hud-info" class="hud-value">LINES: 0<br>LEVEL: 1</div>
+            </div>
+            <div class="hud-box">
+                <div class="hud-title">HOLD</div>
+                <div id="hud-hold-preview" class="hud-preview"></div>
+            </div>
+            <div class="hud-box">
+                <div class="hud-title">NEXT</div>
+                <div id="hud-next-preview" class="hud-preview"></div>
+            </div>
+            <div class="hud-section">
+                <div class="hud-title">LEVEL PROGRESS</div>
+                <div class="hud-bar"><div id="hud-bar-fill" class="hud-bar-fill"></div></div>
+            </div>
+            <div class="hud-controls">
+                <div class="hud-title">CONTROLS</div>
+                <div id="hud-controls-text" class="hud-value">← → : move<br>↓ : soft drop<br>↑ : rotate<br>Space: hard drop<br>C : hold/swap</div>
+                <div id="hud-gameover" class="hud-gameover" aria-hidden="true" style="display:none">GAME OVER</div>
+                <button id="hud-restart-btn" class="hud-btn" aria-label="Restart game" style="display:none">Restart</button>
+            </div>
+    </div>
+    </div>
+    </div>
+    <script>
+        // Smoothly scale the .game-wrap to fit smaller viewports while maintaining aspect ratio
+        (function() {
+            const wrap = document.querySelector('.game-wrap');
+            if (!wrap) return;
+            const update = () => {
+                const vw = window.innerWidth - 48; // keep some room for page padding
+                const vh = window.innerHeight - 48;
+                const rect = wrap.getBoundingClientRect();
+                const w = rect.width;
+                const h = rect.height;
+                const scale = Math.min(1, Math.min(vw / w, vh / h));
+                wrap.style.transform = `scale(${scale})`;
+            };
+            let t = null;
+            const debounce = () => { if (t) cancelAnimationFrame(t); t = requestAnimationFrame(() => { update(); t = null; }); };
+            window.addEventListener('resize', debounce);
+            document.addEventListener('DOMContentLoaded', () => { update(); setTimeout(update, 300); });
+        })();
+    </script>
+</body>
+</html>
