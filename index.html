@@ -5,6 +5,8 @@
     <link rel="icon" type="image/png" href="favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Terminal Tetris - Clone de Tetris em Phaser 3 + TypeScript com estilo terminal verde." />
+    <meta name="theme-color" content="#001100" />
+    <link rel="manifest" href="./assets/manifest-Bo1hr712.webmanifest" />
     <link rel="stylesheet" href="style.css">
     <!-- Google Font for terminal look -->
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -16,8 +18,7 @@
 <body>
     <div id="app">
         <div class="game-wrap">
-            <!-- Link de retorno opcional para o portfólio (remova ou ajuste o href) -->
-            <!-- <a href="../" style="position:absolute;top:6px;left:6px;font:12px 'Share Tech Mono',monospace;color:#00ff66;text-decoration:none;opacity:.75">&larr; BACK</a> -->
+            <a id="back-link" href="../" aria-label="Voltar" style="position:absolute;top:6px;left:6px;font:12px 'Share Tech Mono',monospace;color:#00ff66;text-decoration:none;opacity:.75;transition:opacity .2s;">&larr; BACK</a>
             <div id="game-container"></div>
             <!-- HUD overlay (HTML/CSS) -->
             <div id="hud" aria-hidden="false">
@@ -68,6 +69,20 @@
             const debounce = () => { if (t) cancelAnimationFrame(t); t = requestAnimationFrame(() => { update(); t = null; }); };
             window.addEventListener('resize', debounce);
             document.addEventListener('DOMContentLoaded', () => { update(); setTimeout(update, 300); });
+        })();
+        // Registrar service worker (PWA básico)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW fail', e));
+            });
+        }
+        // Ajustar link BACK se estiver na raíz (evitar navegar para fora)
+        (function(){
+            const a = document.getElementById('back-link');
+            if (!a) return;
+            if (location.pathname === '/' || location.pathname.split('/').filter(Boolean).length <= 1) {
+                a.href = './';
+            }
         })();
     </script>
 </body>
