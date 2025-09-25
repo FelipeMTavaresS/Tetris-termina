@@ -112,6 +112,9 @@ export class Game extends Scene {
     tetrisEffectActive: boolean = false;
     tetrisEffectEnd: number = 0;
     tetrisFlashStart: number = 0;
+    // HUD banner para TETRIS
+    tetrisBannerEl: HTMLElement | null = null;
+    tetrisBannerHideTimer: number | null = null;
 
     constructor () {
         super('Game');
@@ -414,6 +417,7 @@ export class Game extends Scene {
         this.tetrisEffectEnd = now + 600; // duração total do efeito
         this.tetrisFlashStart = now;
         if (this.cameras?.main) this.cameras.main.shake(180, 0.004);
+        this.showTetrisBanner();
     }
 
     endGame() {
@@ -444,6 +448,9 @@ export class Game extends Scene {
         const infoEl = document.getElementById('hud-info'); if (infoEl) infoEl.innerHTML = `LINES: 0<br>LEVEL: 1`;
         const holdPreview = document.getElementById('hud-hold-preview'); if (holdPreview) holdPreview.innerHTML = '';
         this.hold = null;
+        // esconder banner de Tetris se visível
+        if (this.tetrisBannerEl) this.tetrisBannerEl.style.display = 'none';
+        if (this.tetrisBannerHideTimer) { window.clearTimeout(this.tetrisBannerHideTimer); this.tetrisBannerHideTimer = null; }
         // spawn a fresh piece and continue
         this.spawnPiece();
     }
@@ -740,5 +747,59 @@ export class Game extends Scene {
     // contorno
         this.graphics.lineStyle(2, outline, 0.8);
         this.graphics.strokeRect(x, y, size, size);
+    }
+
+    // --- Banner TETRIS -------------------------------------------------
+    private ensureTetrisBanner(): HTMLElement {
+        if (this.tetrisBannerEl && document.body.contains(this.tetrisBannerEl)) return this.tetrisBannerEl;
+        // garantir estilo de animação
+        if (!document.getElementById('tetris-flash-style')) {
+            const style = document.createElement('style');
+            style.id = 'tetris-flash-style';
+            style.textContent = `@keyframes tetrisFlash {0%,45%{opacity:1;} 50%,95%{opacity:0;} 100%{opacity:1;}}`;
+            document.head.appendChild(style);
+        }
+        const hud = document.getElementById('hud') || document.body;
+        const el = document.createElement('div');
+        el.id = 'hud-tetris-banner';
+        el.textContent = 'TETRIS!';
+        el.style.position = 'absolute';
+        el.style.top = '8px';
+        el.style.left = '50%';
+        el.style.transform = 'translateX(-50%)';
+        el.style.padding = '4px 12px';
+        el.style.fontFamily = 'monospace';
+        el.style.fontWeight = '700';
+        el.style.letterSpacing = '2px';
+        el.style.background = 'rgba(0,32,0,0.55)';
+        el.style.border = '1px solid #00ff55';
+        el.style.borderRadius = '4px';
+        el.style.textShadow = '0 0 6px #00ff55, 0 0 12px #00ff55';
+        el.style.boxShadow = '0 0 10px #00ff55 inset, 0 0 12px #00ff55';
+        el.style.color = '#00ff55';
+        el.style.fontSize = '20px';
+        el.style.animation = 'tetrisFlash 180ms steps(1) infinite';
+        el.style.pointerEvents = 'none';
+        el.style.display = 'none';
+        // posicionamento relativo do HUD caso não tenha
+        if (hud && getComputedStyle(hud).position === 'static') {
+            hud.style.position = 'relative';
+        }
+        hud.appendChild(el);
+        this.tetrisBannerEl = el;
+        return el;
+    }
+
+    private showTetrisBanner() {
+        const el = this.ensureTetrisBanner();
+        el.style.display = 'block';
+        el.style.opacity = '1';
+        // resetar timer anterior
+        if (this.tetrisBannerHideTimer) window.clearTimeout(this.tetrisBannerHideTimer);
+        // manter um pouco além do efeito visual principal
+        this.tetrisBannerHideTimer = window.setTimeout(() => {
+            el.style.display = 'none';
+            this.tetrisBannerHideTimer = null;
+        }, 1500);
     }
 }

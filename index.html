@@ -2,17 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/png" href="favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="/style.css">
+    <meta name="description" content="Terminal Tetris - Clone de Tetris em Phaser 3 + TypeScript com estilo terminal verde." />
+    <link rel="stylesheet" href="style.css">
     <!-- Google Font for terminal look -->
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
-    <title>Phaser - Template</title>
+    <title>Terminal Tetris</title>
 </head>
 
 <body>
     <div id="app">
         <div class="game-wrap">
+            <!-- Link de retorno opcional para o portfólio (remova ou ajuste o href) -->
+            <!-- <a href="../" style="position:absolute;top:6px;left:6px;font:12px 'Share Tech Mono',monospace;color:#00ff66;text-decoration:none;opacity:.75">&larr; BACK</a> -->
             <div id="game-container"></div>
             <!-- HUD overlay (HTML/CSS) -->
             <div id="hud" aria-hidden="false">
@@ -45,7 +48,7 @@
     </div>
     </div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="./src/main.ts"></script>
     <script>
         // Smoothly scale the .game-wrap to fit smaller viewports while maintaining aspect ratio
         (function() {
