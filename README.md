@@ -161,6 +161,24 @@ Copie o conteúdo de `dist/` para `meu-portfolio/games/tetris/` e linke com:
 ### Ajustes de Caminho
 `index.html` já usa caminhos relativos (`favicon.png`, `style.css`, `./src/main.ts`), então funciona em subpastas.
 
+### Modo PWA Básico
+Foi adicionado um PWA simples:
+- `manifest.webmanifest` (nome, cores, ícone 32x32)
+- `sw.js` (cache estático + cache-first simples)
+- Registro do service worker no final do `index.html`
+
+Para testar localmente (alguns browsers só ativam SW em https ou `localhost`):
+1. `npm run dev`
+2. Abra `http://localhost:8080`
+3. Verifique no DevTools > Application > Service Workers se está ativo
+4. Experimente habilitar modo offline e recarregar — deve abrir normalmente (assets em cache)
+
+Melhorias possíveis para o PWA:
+- Adicionar ícones em múltiplos tamanhos (192, 512) para install prompt
+- Cache dinâmico refinado (split entre core e runtime)
+- Estratégias Workbox (Stale While Revalidate / Cache First seletivo)
+- Tela de loading offline personalizada
+
 ## Próximos passos e ideias
 
 - Adicionar efeitos sonoros (drop, line clear, game over)
